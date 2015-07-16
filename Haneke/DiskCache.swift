@@ -165,7 +165,7 @@ public class DiskCache {
             Log.error("Failed to write key \(key)", error)
         }
         if let attributes = previousAttributes {
-            self.size -= attributes.fileSize()
+            self.size -= min(attributes.fileSize(), self.size)
         }
         self.size += UInt64(data.length)
         self.controlCapacity()
