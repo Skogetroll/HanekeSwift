@@ -64,8 +64,8 @@ public class Cache<T : DataConvertible where T.Result == T, T : DataRepresentabl
     public func set(#value : T, key: String, formatName : String = HanekeGlobals.Cache.OriginalFormatName, success succeed : ((T) -> ())? = nil) {
         if let (format, memoryCache, diskCache) = self.formats[formatName] {
             self.format(value: value, format: format) { formattedValue in
-                let wrapper = ObjectWrapper(value: formattedValue)
-                memoryCache.setObject(wrapper, forKey: key)
+                let wrapper = NSPurgeableData(data: formattedValue.asData())
+                memoryCache.setObject(wrapper, forKey: key, cost: wrapper.length)
                 // Value data is sent as @autoclosure to be executed in the disk cache queue.
                 diskCache.setData(self.dataFromValue(formattedValue, format: format), key: key)
                 succeed?(formattedValue)
@@ -78,7 +78,7 @@ public class Cache<T : DataConvertible where T.Result == T, T : DataRepresentabl
     public func fetch(#key : String, formatName : String = HanekeGlobals.Cache.OriginalFormatName, failure fail : Fetch<T>.Failer? = nil, success succeed : Fetch<T>.Succeeder? = nil) -> Fetch<T> {
         let fetch = Cache.buildFetch(failure: fail, success: succeed)
         if let (format, memoryCache, diskCache) = self.formats[formatName] {
-            if let wrapper = memoryCache.objectForKey(key) as? ObjectWrapper, let result = wrapper.value as? T {
+            if let wrapper = memoryCache.objectForKey(key) as? NSPurgeableData, let result = T.convertFromData(wrapper) {
                 fetch.succeed(result)
                 diskCache.updateAccessDate(self.dataFromValue(result, format: format), key: key)
                 return fetch
@@ -152,6 +152,8 @@ public class Cache<T : DataConvertible where T.Result == T, T : DataRepresentabl
         let name = format.name
         let formatPath = self.formatPath(formatName: name)
         let memoryCache = NSCache()
+        memoryCache.evictsObjectsWithDiscardedContent = true
+        memoryCache.totalCostLimit = Int(min(UInt64(Int.max), format.diskCapacity / 10))
         let diskCache = DiskCache(path: formatPath, capacity : format.diskCapacity)
         self.formats[name] = (format, memoryCache, diskCache)
     }
@@ -202,8 +204,8 @@ public class Cache<T : DataConvertible where T.Result == T, T : DataRepresentabl
                     let descompressedValue = self.decompressedImageIfNeeded(value)
                     dispatch_async(dispatch_get_main_queue(), {
                         succeed(descompressedValue)
-                        let wrapper = ObjectWrapper(value: descompressedValue)
-                        memoryCache.setObject(wrapper, forKey: key)
+                        let wrapper = NSPurgeableData(data: descompressedValue.asData())
+                        memoryCache.setObject(wrapper, forKey: key, cost: wrapper.length)
                     })
                 }
             })
